@@ -7,6 +7,26 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23111'/><text x='16' y='21' text-anchor='middle' font-family='-apple-system,Helvetica,Arial,sans-serif' font-size='13' font-weight='600' fill='white'>WLS</text></svg>">
   <link rel="stylesheet" href="styles.css">
   <style>
+    .nav-brand {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 8px;
+      /* optical centering — offset the trailing letter-spacing on the right */
+      padding-left: 8px;
+      color: var(--text);
+      text-decoration: none;
+      -webkit-app-region: no-drag;
+      transition: opacity var(--transition);
+      white-space: nowrap;
+    }
+
+    .nav-brand:hover { opacity: 0.7; }
+
     .create-layout {
       display: grid;
       grid-template-columns: 1fr 300px;
@@ -239,12 +259,119 @@
       text-align: center;
       margin-top: -4px;
     }
+
+    /* ── Mobile / touch layout ── */
+    @media (max-width: 720px) {
+      /* Allow the page to grow and scroll instead of being locked to one screen. */
+      .create-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 16px;
+        padding-top: 72px;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      /* Previews sit on top, controls below. Nothing may exceed the viewport. */
+      .preview-area {
+        gap: 12px;
+        width: 100%;
+        max-width: 100%;
+      }
+
+      .preview-container {
+        gap: 14px;
+        width: 100%;
+        max-width: 100%;
+        justify-content: center;
+      }
+
+      /* On a phone we only show the phone preview (the user is on mobile).
+         The desktop wallpaper is still fully exportable via "Download Desktop".
+         Hide the whole desktop wrap so its "DESKTOP" label goes too. */
+      .preview-container .preview-wrap:first-child {
+        display: none;
+      }
+
+      /* Phone preview: scaled up to read nicely, centered. The canvas buffer
+         (export resolution) is unchanged; only the on-screen size grows. */
+      #previewMobile {
+        width: auto;
+        height: 300px;
+        max-width: 100%;
+      }
+
+      /* Controls become a full-width stacked panel that scrolls with the page. */
+      .controls-panel {
+        width: 100%;
+        max-width: 100%;
+        overflow-y: visible;
+        padding-right: 0;
+        padding-top: 0;
+        gap: 22px;
+      }
+
+      /* Bigger tap targets for pattern thumbnails. */
+      .style-grid {
+        gap: 10px;
+      }
+
+      /* Roomier, easier-to-tap palette swatches. */
+      .palette-row {
+        gap: 10px;
+      }
+
+      .palette-swatch {
+        width: 44px;
+        height: 44px;
+      }
+
+      /* Comfortable touch height on the primary actions. */
+      .mode-btn,
+      .btn-shuffle,
+      .btn-export,
+      .btn-apply {
+        padding: 14px;
+        font-size: 14px;
+      }
+
+      /* On mobile the export separator/auto-margin isn't needed. */
+      .export-group {
+        margin-top: 4px;
+      }
+
+      /* Slightly smaller wordmark so it never crowds the theme toggle. */
+      .nav-brand {
+        font-size: 17px;
+        letter-spacing: 5px;
+        padding-left: 5px;
+      }
+    }
+
+    /* Very narrow phones: trim the preview height so controls stay reachable. */
+    @media (max-width: 380px) {
+      #previewMobile {
+        height: 260px;
+      }
+    }
+
+    /* On touch devices, drop hover-only styling that can "stick" after a tap. */
+    @media (hover: none) {
+      .style-btn:hover { border-color: var(--border); }
+      .palette-swatch:hover { border-color: var(--border); }
+      .mode-btn:hover { border-color: var(--border); color: var(--text-muted); }
+      .btn-shuffle:hover { background: var(--bg-card); border-color: var(--border); }
+      .nav-brand:hover { opacity: 1; }
+    }
   </style>
 </head>
 <body>
 
 <nav data-tauri-drag-region>
   <div></div>
+
+  <a href="index.html" class="nav-brand" title="WALLS">WALLS</a>
 
   <div class="nav-actions">
     <div class="nav-tabs">
@@ -752,8 +879,9 @@
   }
 
   // ---- Create UI wiring ----
-  let currentPattern = 0;
-  let currentPalette = 0;
+  // Start on a random pattern + palette + seed so the app opens on a fresh wallpaper each time.
+  let currentPattern = Math.random() * PATTERNS.length | 0;
+  let currentPalette = Math.random() * PALETTES.length | 0;
   let seed = Math.random() * 10000 | 0;
   let inverted = false;
 
@@ -832,42 +960,43 @@
     exportWallpaper(MOBILE_W, MOBILE_H, currentPattern, currentPalette, seed, inverted, 'walls-iphone.png');
   };
 
-  // Apply as wallpaper
-  document.getElementById('btnApply').addEventListener('click', async () => {
-    try {
-      if (!window.__TAURI__) {
-        alert('This feature is only available in the desktop app.');
-        return;
+  // Apply as wallpaper (button is only present in the Tauri desktop build)
+  const btnApply = document.getElementById('btnApply');
+  if (btnApply) {
+    btnApply.addEventListener('click', async () => {
+      try {
+        if (!window.__TAURI__) {
+          alert('This feature is only available in the desktop app.');
+          return;
+        }
+        btnApply.textContent = 'Applying...';
+        btnApply.disabled = true;
+
+        const c = document.createElement('canvas');
+        c.width = DESKTOP_W;
+        c.height = DESKTOP_H;
+        drawPattern(c.getContext('2d'), DESKTOP_W, DESKTOP_H, currentPattern, currentPalette, seed, inverted);
+        const blob = await new Promise(resolve => c.toBlob(resolve, 'image/png'));
+        const arrayBuffer = await blob.arrayBuffer();
+        const bytes = Array.from(new Uint8Array(arrayBuffer));
+        await window.__TAURI__.core.invoke('set_wallpaper', {
+          bytes,
+          filename: `walls-custom-${seed}.png`,
+        });
+
+        await new Promise(r => setTimeout(r, 5000));
+        btnApply.textContent = 'Applied!';
+        setTimeout(() => {
+          btnApply.textContent = 'Set Wallpaper';
+          btnApply.disabled = false;
+        }, 2000);
+      } catch (err) {
+        alert('Error: ' + err);
+        btnApply.textContent = 'Set Wallpaper';
+        btnApply.disabled = false;
       }
-      const btn = document.getElementById('btnApply');
-      btn.textContent = 'Applying...';
-      btn.disabled = true;
-
-      const c = document.createElement('canvas');
-      c.width = DESKTOP_W;
-      c.height = DESKTOP_H;
-      drawPattern(c.getContext('2d'), DESKTOP_W, DESKTOP_H, currentPattern, currentPalette, seed, inverted);
-      const blob = await new Promise(resolve => c.toBlob(resolve, 'image/png'));
-      const arrayBuffer = await blob.arrayBuffer();
-      const bytes = Array.from(new Uint8Array(arrayBuffer));
-      await window.__TAURI__.core.invoke('set_wallpaper', {
-        bytes,
-        filename: `walls-custom-${seed}.png`,
-      });
-
-      await new Promise(r => setTimeout(r, 5000));
-      btn.textContent = 'Applied!';
-      setTimeout(() => {
-        btn.textContent = 'Set Wallpaper';
-        btn.disabled = false;
-      }, 2000);
-    } catch (err) {
-      alert('Error: ' + err);
-      const btn = document.getElementById('btnApply');
-      btn.textContent = 'Set Wallpaper';
-      btn.disabled = false;
-    }
-  });
+    });
+  }
 
   render();
 })();
